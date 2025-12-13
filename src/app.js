@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
-import SelectInput from 'ink-select-input';
+import { Select, StatusMessage, Badge } from '@inkjs/ui';
+import Table from 'ink-table';
 import { VERSION, discoverDroids, getAvailableModels, saveDroid } from './models.js';
 
-// Main app states
 const STATE_LIST = 'list';
 const STATE_PICKER = 'picker';
 const STATE_PICKER_ALL = 'picker_all';
@@ -13,7 +13,8 @@ export default function App() {
   const [droids, setDroids] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [state, setState] = useState(STATE_LIST);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(null);
+  const [messageType, setMessageType] = useState('info');
 
   useEffect(() => {
     setDroids(discoverDroids());
@@ -21,32 +22,30 @@ export default function App() {
 
   const modifiedCount = droids.filter(d => d.model !== d.originalModel).length;
 
-  // Build model picker items
+  // Build model picker options
   const { factory, byok } = getAvailableModels();
-  const modelItems = [
-    { label: '── Factory Models ──', value: '__header_factory__', disabled: true },
+  const modelOptions = [
     ...factory.map(m => ({ 
-      label: `  ${m}`, 
+      label: m, 
       value: `factory:${m}` 
     })),
-  ];
-  if (byok.length > 0) {
-    modelItems.push({ label: '── BYOK Custom ──', value: '__header_byok__', disabled: true });
-    modelItems.push(...byok.map(m => ({ 
-      label: `  ${m}`, 
+    ...byok.map(m => ({ 
+      label: `${m} (BYOK)`, 
       value: `byok:${m}` 
-    })));
-  }
+    })),
+  ];
 
-  // Filter out disabled items for SelectInput (it doesn't support disabled)
-  const selectableModelItems = modelItems.filter(item => !item.disabled);
+  const showMessage = (msg, type = 'info') => {
+    setMessage(msg);
+    setMessageType(type);
+    setTimeout(() => setMessage(null), 3000);
+  };
 
   useInput((input, key) => {
     if (state === STATE_LIST) {
       if (input === 'q') {
-        if (modifiedCount > 0) {
-          setMessage("Unsaved changes! Press 's' to save or 'q' again to force quit");
-          // Next q will force quit
+        if (modifiedCount > 0 && !message?.includes('force')) {
+          showMessage("Unsaved changes! Press 'q' again to force quit", 'warning');
           return;
         }
         exit();
@@ -59,8 +58,8 @@ export default function App() {
             saved++;
           }
         }
-        setDroids([...droids]); // Force re-render
-        setMessage(saved > 0 ? `Saved ${saved} droid(s)` : 'No changes to save');
+        setDroids([...droids]);
+        showMessage(saved > 0 ? `Saved ${saved} droid(s)` : 'No changes to save', 'success');
       }
       if (input === 'a') {
         setState(STATE_PICKER_ALL);
@@ -68,22 +67,20 @@ export default function App() {
       if (input === 'i') {
         const updated = droids.map(d => ({ ...d, model: 'inherit' }));
         setDroids(updated);
-        setMessage("All droids set to 'inherit'");
+        showMessage("All droids set to 'inherit'", 'success');
       }
       if (input === 'r') {
         setDroids(discoverDroids());
-        setMessage('Reloaded from disk');
+        showMessage('Reloaded from disk', 'info');
       }
       if (key.return && droids.length > 0) {
         setState(STATE_PICKER);
       }
       if ((key.downArrow || input === 'j') && selectedIndex < droids.length - 1) {
         setSelectedIndex(selectedIndex + 1);
-        setMessage('');
       }
       if ((key.upArrow || input === 'k') && selectedIndex > 0) {
         setSelectedIndex(selectedIndex - 1);
-        setMessage('');
       }
     }
     
@@ -92,9 +89,8 @@ export default function App() {
     }
   });
 
-  const handleModelSelect = (item) => {
-    // Strip prefix
-    let model = item.value;
+  const handleModelSelect = (value) => {
+    let model = value;
     if (model.startsWith('factory:') || model.startsWith('byok:')) {
       model = model.split(':')[1];
     }
@@ -103,87 +99,90 @@ export default function App() {
       const updated = [...droids];
       updated[selectedIndex] = { ...updated[selectedIndex], model };
       setDroids(updated);
-      setMessage(`Set ${droids[selectedIndex].name} to '${model}'`);
+      showMessage(`Set ${droids[selectedIndex].name} to '${model}'`, 'success');
     } else if (state === STATE_PICKER_ALL) {
       const updated = droids.map(d => ({ ...d, model }));
       setDroids(updated);
-      setMessage(`All droids set to '${model}'`);
+      showMessage(`All droids set to '${model}'`, 'success');
     }
     setState(STATE_LIST);
   };
 
-  // Render model picker
+  // Model picker screen
   if (state === STATE_PICKER || state === STATE_PICKER_ALL) {
     const title = state === STATE_PICKER 
-      ? `Model for ${droids[selectedIndex]?.name}` 
+      ? `Select model for: ${droids[selectedIndex]?.name}` 
       : 'Set ALL droids to:';
     
+    const currentModel = state === STATE_PICKER ? droids[selectedIndex]?.model : 'inherit';
+    const defaultValue = modelOptions.find(o => o.value.endsWith(`:${currentModel}`))?.value;
+
     return (
       <Box flexDirection="column" padding={1}>
-        <Text bold color="cyan">{title}</Text>
-        <Text dimColor>Use ↑↓/j/k to navigate, Enter to select, Esc to cancel</Text>
-        <Box marginTop={1}>
-          <SelectInput
-            items={selectableModelItems}
-            onSelect={handleModelSelect}
+        <Box marginBottom={1}>
+          <Text bold color="cyan">{title}</Text>
+        </Box>
+        <Box borderStyle="round" borderColor="cyan" padding={1}>
+          <Select
+            options={modelOptions}
+            defaultValue={defaultValue}
+            onChange={handleModelSelect}
+            visibleOptionCount={12}
           />
+        </Box>
+        <Box marginTop={1}>
+          <Text dimColor>↑↓ Navigate • Enter Select • Esc Cancel</Text>
         </Box>
       </Box>
     );
   }
 
+  // Prepare table data
+  const tableData = droids.map((droid, index) => ({
+    ' ': index === selectedIndex ? '▶' : ' ',
+    Name: droid.name,
+    Model: droid.model,
+    Location: droid.location,
+    Status: droid.model !== droid.originalModel ? '●' : '',
+  }));
+
   // Main list view
   return (
-    <Box flexDirection="column">
-      <Box marginBottom={1}>
-        <Text bold color="cyan">Droid Model Tuner v{VERSION}</Text>
-      </Box>
-
+    <Box flexDirection="column" padding={1}>
       {/* Header */}
-      <Box>
-        <Box width={32}><Text bold color="gray">Name</Text></Box>
-        <Box width={26}><Text bold color="gray">Model</Text></Box>
-        <Box width={10}><Text bold color="gray">Location</Text></Box>
-        <Box width={10}><Text bold color="gray">Status</Text></Box>
+      <Box marginBottom={1} justifyContent="space-between">
+        <Text bold color="cyan">Droid Model Tuner v{VERSION}</Text>
+        <Box gap={1}>
+          <Badge color="blue">{droids.length} droids</Badge>
+          {modifiedCount > 0 && <Badge color="yellow">{modifiedCount} modified</Badge>}
+        </Box>
       </Box>
 
-      {/* Droid list */}
-      {droids.map((droid, index) => {
-        const isSelected = index === selectedIndex;
-        const isModified = droid.model !== droid.originalModel;
-        return (
-          <Box key={droid.name}>
-            <Box width={32}>
-              <Text color={isSelected ? 'cyan' : 'white'} bold={isSelected}>
-                {isSelected ? '> ' : '  '}{droid.name}
-              </Text>
-            </Box>
-            <Box width={26}>
-              <Text color={isModified ? 'yellow' : 'white'}>{droid.model}</Text>
-            </Box>
-            <Box width={10}>
-              <Text dimColor>{droid.location}</Text>
-            </Box>
-            <Box width={10}>
-              <Text color="yellow">{isModified ? 'modified' : ''}</Text>
-            </Box>
-          </Box>
-        );
-      })}
+      {/* Table */}
+      {droids.length > 0 ? (
+        <Box borderStyle="round" borderColor="gray">
+          <Table 
+            data={tableData} 
+            columns={[' ', 'Name', 'Model', 'Location', 'Status']}
+          />
+        </Box>
+      ) : (
+        <Box padding={2}>
+          <Text color="yellow">No droids found in ~/.factory/droids/</Text>
+        </Box>
+      )}
 
-      {/* Status bar */}
-      <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
-        <Text>
-          {droids.length} droids
-          {modifiedCount > 0 ? ` | ${modifiedCount} modified` : ''}
-          {message ? ` | ${message}` : ''}
-        </Text>
-      </Box>
+      {/* Status message */}
+      {message && (
+        <Box marginTop={1}>
+          <StatusMessage variant={messageType}>{message}</StatusMessage>
+        </Box>
+      )}
 
       {/* Help */}
-      <Box marginTop={1}>
+      <Box marginTop={1} flexDirection="column">
         <Text dimColor>
-          ↑↓/j/k: Navigate | Enter: Edit | a: Set All | i: All Inherit | s: Save | r: Reload | q: Quit
+          ↑↓/jk Navigate • Enter Edit • a Set All • i All Inherit • s Save • r Reload • q Quit
         </Text>
       </Box>
     </Box>

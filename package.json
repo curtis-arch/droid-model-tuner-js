@@ -28,9 +28,11 @@
     "url": "https://github.com/curtis-arch/droid-model-tuner-js"
   },
   "dependencies": {
+    "@inkjs/ui": "^2.0.0",
     "gray-matter": "^4.0.3",
     "ink": "^5.1.0",
     "ink-select-input": "^6.0.0",
+    "ink-table": "^3.1.0",
     "react": "^18.3.1"
   },
   "devDependencies": {
