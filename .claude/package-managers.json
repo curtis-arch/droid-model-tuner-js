@@ -1,0 +1,16 @@
+{
+  "version": "1.0",
+  "generated": "2025-12-13T19:05:53.630028Z",
+  "settings": {
+    "checkParentDirs": true,
+    "maxParentDepth": 3,
+    "allowRunCommands": true
+  },
+  "node": {
+    "manager": "npm",
+    "confidence": "high",
+    "source": "package-lock.json",
+    "enforcement": "block",
+    "alternatives": []
+  }
+}

@@ -4,7 +4,9 @@ import os from 'os';
 import matter from 'gray-matter';
 import { execSync } from 'child_process';
 
-export const VERSION = '0.3.0';
+// Read version from package.json
+const pkgPath = new URL('../package.json', import.meta.url);
+export const VERSION = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version;
 
 // Fallback models if CLI parsing fails
 const FALLBACK_MODELS = [
