@@ -50,14 +50,6 @@ The tool reads droid configurations from:
 
 It also reads your BYOK custom models from `~/.factory/config.json` to include them in the model picker.
 
-## Also Available
-
-Python version: [droid-model-tuner (Python)](https://github.com/curtis-arch/droid-model-tuner)
-
-```bash
-uvx droid-model-tuner
-```
-
 ## License
 
 MIT

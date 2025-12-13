@@ -1,6 +1,6 @@
 {
   "name": "droid-model-tuner",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "TUI tool for managing Factory droid model configurations",
   "type": "module",
   "bin": {
