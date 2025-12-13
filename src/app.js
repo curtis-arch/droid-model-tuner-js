@@ -1,11 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import { Select, StatusMessage, Badge } from '@inkjs/ui';
-import { VERSION, discoverDroids, getAvailableModels, saveDroid } from './models.js';
+import { VERSION, discoverDroids, getAvailableModels, getReasoningLevels, saveDroid } from './models.js';
 
 const STATE_LIST = 'list';
 const STATE_PICKER = 'picker';
 const STATE_PICKER_ALL = 'picker_all';
+const STATE_REASONING = 'reasoning';
+const STATE_REASONING_ALL = 'reasoning_all';
+
+// Truncate string with ellipsis
+function truncate(str, maxLen) {
+  if (!str || str.length <= maxLen) return str || '';
+  return str.slice(0, maxLen - 1) + '…';
+}
 
 // Custom Table Row component
 function TableRow({ columns, widths, isHeader, isSelected }) {
@@ -31,6 +39,7 @@ export default function App() {
   const [droids, setDroids] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [state, setState] = useState(STATE_LIST);
+  const [pendingModel, setPendingModel] = useState(null);
   const [message, setMessage] = useState(null);
   const [messageType, setMessageType] = useState('info');
 
@@ -38,7 +47,9 @@ export default function App() {
     setDroids(discoverDroids());
   }, []);
 
-  const modifiedCount = droids.filter(d => d.model !== d.originalModel).length;
+  const modifiedCount = droids.filter(d => 
+    d.model !== d.originalModel || d.reasoningEffort !== d.originalReasoningEffort
+  ).length;
 
   // Build model picker options with section headers
   const { factory, byok } = getAvailableModels();
@@ -71,7 +82,8 @@ export default function App() {
       if (input === 's') {
         let saved = 0;
         for (const droid of droids) {
-          if (droid.model !== droid.originalModel) {
+          if (droid.model !== droid.originalModel || 
+              droid.reasoningEffort !== droid.originalReasoningEffort) {
             saveDroid(droid);
             saved++;
           }
@@ -105,6 +117,10 @@ export default function App() {
     if ((state === STATE_PICKER || state === STATE_PICKER_ALL) && key.escape) {
       setState(STATE_LIST);
     }
+    if ((state === STATE_REASONING || state === STATE_REASONING_ALL) && key.escape) {
+      setPendingModel(null);
+      setState(STATE_LIST);
+    }
   });
 
   const handleModelSelect = (value) => {
@@ -113,17 +129,38 @@ export default function App() {
       model = model.split(':')[1];
     }
 
-    if (state === STATE_PICKER) {
-      const updated = [...droids];
-      updated[selectedIndex] = { ...updated[selectedIndex], model };
-      setDroids(updated);
-      showMessage(`Set ${droids[selectedIndex].name} to '${model}'`, 'success');
-    } else if (state === STATE_PICKER_ALL) {
-      const updated = droids.map(d => ({ ...d, model }));
-      setDroids(updated);
-      showMessage(`All droids set to '${model}'`, 'success');
+    const reasoning = getReasoningLevels(model);
+    const hasReasoning = reasoning && reasoning.supported.length > 0 && 
+      !reasoning.supported.every(l => l === 'none');
+
+    if (hasReasoning) {
+      setPendingModel(model);
+      setState(state === STATE_PICKER ? STATE_REASONING : STATE_REASONING_ALL);
+    } else {
+      applyModelChange(model, null);
     }
+  };
+
+  const applyModelChange = (model, reasoningEffort) => {
+    if (state === STATE_PICKER || state === STATE_REASONING) {
+      const updated = [...droids];
+      updated[selectedIndex] = { ...updated[selectedIndex], model, reasoningEffort };
+      setDroids(updated);
+      const effortStr = reasoningEffort ? ` (${reasoningEffort})` : '';
+      showMessage(`Set ${droids[selectedIndex].name} to '${model}${effortStr}'`, 'success');
+    } else if (state === STATE_PICKER_ALL || state === STATE_REASONING_ALL) {
+      const updated = droids.map(d => ({ ...d, model, reasoningEffort }));
+      setDroids(updated);
+      const effortStr = reasoningEffort ? ` (${reasoningEffort})` : '';
+      showMessage(`All droids set to '${model}${effortStr}'`, 'success');
+    }
+    setPendingModel(null);
     setState(STATE_LIST);
+  };
+
+  const handleReasoningSelect = (value) => {
+    const effort = value === 'skip' ? null : value;
+    applyModelChange(pendingModel, effort);
   };
 
   // Model picker screen
@@ -146,6 +183,42 @@ export default function App() {
             defaultValue={defaultValue}
             onChange={handleModelSelect}
             visibleOptionCount={12}
+          />
+        </Box>
+        <Box marginTop={1}>
+          <Text dimColor>↑↓ Navigate • Enter Select • Esc Cancel</Text>
+        </Box>
+      </Box>
+    );
+  }
+
+  // Reasoning effort picker screen
+  if (state === STATE_REASONING || state === STATE_REASONING_ALL) {
+    const reasoning = getReasoningLevels(pendingModel);
+    const currentEffort = state === STATE_REASONING 
+      ? droids[selectedIndex]?.reasoningEffort 
+      : null;
+    
+    const options = [
+      { label: 'Skip (no reasoning effort)', value: 'skip' },
+      ...reasoning.supported
+        .filter(l => l !== 'none')
+        .map(l => ({ 
+          label: l === reasoning.default ? `${l} (default)` : l, 
+          value: l 
+        })),
+    ];
+
+    return (
+      <Box flexDirection="column" padding={1}>
+        <Box marginBottom={1}>
+          <Text bold color="cyan">╭─ Reasoning Effort for: {truncate(pendingModel, 30)} ─╮</Text>
+        </Box>
+        <Box borderStyle="round" borderColor="cyan" paddingX={1}>
+          <Select
+            options={options}
+            defaultValue={currentEffort || 'skip'}
+            onChange={handleReasoningSelect}
           />
         </Box>
         <Box marginTop={1}>
@@ -185,14 +258,18 @@ export default function App() {
           {/* Table rows */}
           {droids.map((droid, index) => {
             const isSelected = index === selectedIndex;
-            const isModified = droid.model !== droid.originalModel;
+            const isModified = droid.model !== droid.originalModel || 
+              droid.reasoningEffort !== droid.originalReasoningEffort;
+            const modelDisplay = droid.reasoningEffort 
+              ? `${droid.model} (${droid.reasoningEffort})` 
+              : droid.model;
             return (
               <TableRow
                 key={droid.name}
                 columns={[
                   isSelected ? '▶' : ' ',
-                  droid.name,
-                  droid.model,
+                  truncate(droid.name, 30),
+                  truncate(modelDisplay, 24),
                   droid.location,
                   isModified ? '●' : ''
                 ]}

@@ -26,8 +26,9 @@ const FALLBACK_MODELS = [
 const PERSONAL_DROIDS_DIR = path.join(os.homedir(), '.factory', 'droids');
 const FACTORY_CONFIG_PATH = path.join(os.homedir(), '.factory', 'config.json');
 
-// Cache for dynamic models
+// Cache for dynamic models and reasoning info
 let cachedModels = null;
+let cachedReasoningInfo = {};
 
 function parseModelsFromDroidHelp() {
   try {
@@ -37,30 +38,76 @@ function parseModelsFromDroidHelp() {
     });
 
     const models = ['inherit'];
+    const displayToId = {}; // Map display name -> model ID
+    const reasoningInfo = {};
     const lines = output.split('\n');
     let inModelsSection = false;
+    let inModelDetails = false;
 
     for (const line of lines) {
+      // Parse Available Models section
       if (line.trim() === 'Available Models:') {
         inModelsSection = true;
+        inModelDetails = false;
         continue;
       }
       if (inModelsSection) {
         if (line.trim() === '' || line.trim().startsWith('Custom Models:')) {
-          break;
+          inModelsSection = false;
+          continue;
         }
-        // Parse lines like "  gpt-5.1-codex                OpenAI GPT-5.1-Codex"
-        const match = line.match(/^\s{2}(\S+)\s+/);
+        // Parse: "  gpt-5.1-codex                OpenAI GPT-5.1-Codex"
+        const match = line.match(/^\s{2}(\S+)\s+(.+)$/);
         if (match && match[1]) {
           models.push(match[1]);
+          if (match[2]) {
+            // Strip "(default)" suffix for matching
+            const displayName = match[2].trim().replace(/\s*\(default\)\s*$/i, '').toLowerCase();
+            displayToId[displayName] = match[1];
+          }
+        }
+      }
+
+      // Parse Model details section for reasoning effort
+      if (line.trim() === 'Model details:') {
+        inModelDetails = true;
+        continue;
+      }
+      if (inModelDetails) {
+        if (line.trim() === '' || !line.startsWith('  -')) {
+          if (line.trim() !== '' && !line.startsWith('  ')) {
+            inModelDetails = false;
+          }
+          continue;
+        }
+        // Parse: "  - OpenAI GPT-5.1: supports reasoning: Yes; supported: [low, medium, high]; default: medium"
+        const nameMatch = line.match(/^\s+-\s+([^:]+):/);
+        const detailMatch = line.match(/supported:\s*\[([^\]]*)\];\s*default:\s*(\w+)/);
+        if (nameMatch && detailMatch) {
+          const displayName = nameMatch[1].trim().toLowerCase();
+          const supported = detailMatch[1].split(',').map(s => s.trim()).filter(Boolean);
+          const defaultLevel = detailMatch[2];
+          // Look up model ID from display name
+          const modelId = displayToId[displayName];
+          if (modelId) {
+            reasoningInfo[modelId] = { supported, default: defaultLevel };
+          }
         }
       }
     }
 
+    cachedReasoningInfo = reasoningInfo;
     return models.length > 1 ? models : null;
   } catch {
     return null;
   }
+}
+
+export function getReasoningLevels(modelId) {
+  if (!cachedModels) {
+    cachedModels = parseModelsFromDroidHelp() || FALLBACK_MODELS;
+  }
+  return cachedReasoningInfo[modelId] || null;
 }
 
 export function getAvailableModels() {
@@ -105,6 +152,8 @@ export function discoverDroids() {
             path: filePath,
             model: data.model || 'inherit',
             originalModel: data.model || 'inherit',
+            reasoningEffort: data.reasoningEffort || null,
+            originalReasoningEffort: data.reasoningEffort || null,
             location: 'personal',
           });
         } catch (e) {
@@ -122,7 +171,13 @@ export function saveDroid(droid) {
   const content = fs.readFileSync(droid.path, 'utf8');
   const parsed = matter(content);
   parsed.data.model = droid.model;
+  if (droid.reasoningEffort) {
+    parsed.data.reasoningEffort = droid.reasoningEffort;
+  } else {
+    delete parsed.data.reasoningEffort;
+  }
   const newContent = matter.stringify(parsed.content, parsed.data);
   fs.writeFileSync(droid.path, newContent);
   droid.originalModel = droid.model;
+  droid.originalReasoningEffort = droid.reasoningEffort;
 }
