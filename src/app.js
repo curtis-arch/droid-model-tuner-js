@@ -1,12 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import { Select, StatusMessage, Badge } from '@inkjs/ui';
-import Table from 'ink-table';
 import { VERSION, discoverDroids, getAvailableModels, saveDroid } from './models.js';
 
 const STATE_LIST = 'list';
 const STATE_PICKER = 'picker';
 const STATE_PICKER_ALL = 'picker_all';
+
+// Custom Table Row component
+function TableRow({ columns, widths, isHeader, isSelected }) {
+  return (
+    <Box>
+      {columns.map((col, i) => (
+        <Box key={i} width={widths[i]} paddingRight={1}>
+          <Text 
+            bold={isHeader} 
+            color={isHeader ? 'gray' : (isSelected ? 'cyan' : 'white')}
+            dimColor={isHeader}
+          >
+            {col}
+          </Text>
+        </Box>
+      ))}
+    </Box>
+  );
+}
 
 export default function App() {
   const { exit } = useApp();
@@ -22,7 +40,7 @@ export default function App() {
 
   const modifiedCount = droids.filter(d => d.model !== d.originalModel).length;
 
-  // Build model picker options
+  // Build model picker options with section headers
   const { factory, byok } = getAvailableModels();
   const modelOptions = [
     ...factory.map(m => ({ 
@@ -120,9 +138,9 @@ export default function App() {
     return (
       <Box flexDirection="column" padding={1}>
         <Box marginBottom={1}>
-          <Text bold color="cyan">{title}</Text>
+          <Text bold color="cyan">╭─ {title} ─╮</Text>
         </Box>
-        <Box borderStyle="round" borderColor="cyan" padding={1}>
+        <Box borderStyle="round" borderColor="cyan" paddingX={1}>
           <Select
             options={modelOptions}
             defaultValue={defaultValue}
@@ -137,21 +155,15 @@ export default function App() {
     );
   }
 
-  // Prepare table data
-  const tableData = droids.map((droid, index) => ({
-    ' ': index === selectedIndex ? '▶' : ' ',
-    Name: droid.name,
-    Model: droid.model,
-    Location: droid.location,
-    Status: droid.model !== droid.originalModel ? '●' : '',
-  }));
+  // Column widths
+  const widths = [3, 32, 26, 10, 8];
 
   // Main list view
   return (
     <Box flexDirection="column" padding={1}>
       {/* Header */}
       <Box marginBottom={1} justifyContent="space-between">
-        <Text bold color="cyan">Droid Model Tuner v{VERSION}</Text>
+        <Text bold color="cyan">╭─ Droid Model Tuner v{VERSION} ─╮</Text>
         <Box gap={1}>
           <Badge color="blue">{droids.length} droids</Badge>
           {modifiedCount > 0 && <Badge color="yellow">{modifiedCount} modified</Badge>}
@@ -160,14 +172,38 @@ export default function App() {
 
       {/* Table */}
       {droids.length > 0 ? (
-        <Box borderStyle="round" borderColor="gray">
-          <Table 
-            data={tableData} 
-            columns={[' ', 'Name', 'Model', 'Location', 'Status']}
+        <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1}>
+          {/* Table header */}
+          <TableRow 
+            columns={['', 'Name', 'Model', 'Location', 'Status']} 
+            widths={widths}
+            isHeader 
           />
+          <Box>
+            <Text dimColor>{'─'.repeat(76)}</Text>
+          </Box>
+          {/* Table rows */}
+          {droids.map((droid, index) => {
+            const isSelected = index === selectedIndex;
+            const isModified = droid.model !== droid.originalModel;
+            return (
+              <TableRow
+                key={droid.name}
+                columns={[
+                  isSelected ? '▶' : ' ',
+                  droid.name,
+                  droid.model,
+                  droid.location,
+                  isModified ? '●' : ''
+                ]}
+                widths={widths}
+                isSelected={isSelected}
+              />
+            );
+          })}
         </Box>
       ) : (
-        <Box padding={2}>
+        <Box padding={2} borderStyle="round" borderColor="yellow">
           <Text color="yellow">No droids found in ~/.factory/droids/</Text>
         </Box>
       )}
@@ -180,7 +216,7 @@ export default function App() {
       )}
 
       {/* Help */}
-      <Box marginTop={1} flexDirection="column">
+      <Box marginTop={1}>
         <Text dimColor>
           ↑↓/jk Navigate • Enter Edit • a Set All • i All Inherit • s Save • r Reload • q Quit
         </Text>
