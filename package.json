@@ -1,0 +1,41 @@
+{
+  "name": "droid-model-tuner",
+  "version": "0.3.0",
+  "description": "TUI tool for managing Factory droid model configurations",
+  "type": "module",
+  "bin": {
+    "droid-model-tuner": "./dist/cli.js"
+  },
+  "main": "dist/app.js",
+  "scripts": {
+    "build": "babel src -d dist && cp cli.js dist/",
+    "prepublishOnly": "npm run build",
+    "start": "npm run build && node dist/cli.js",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "factory",
+    "droid",
+    "cli",
+    "tui",
+    "ai",
+    "agents"
+  ],
+  "author": "John Curtis <john@curtisdigital.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/curtis-arch/droid-model-tuner-js"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "ink": "^5.1.0",
+    "ink-select-input": "^6.0.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.28.3",
+    "@babel/core": "^7.28.5",
+    "@babel/preset-react": "^7.28.5"
+  }
+}
