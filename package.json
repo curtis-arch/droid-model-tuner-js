@@ -4,7 +4,7 @@
   "description": "TUI tool for managing Factory droid model configurations",
   "type": "module",
   "bin": {
-    "droid-model-tuner": "./dist/cli.js"
+    "droid-model-tuner": "dist/cli.js"
   },
   "main": "dist/app.js",
   "scripts": {
