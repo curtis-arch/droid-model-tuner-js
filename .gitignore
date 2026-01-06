@@ -4,4 +4,4 @@ dist/
 .DS_Store
 artifacts/droid-docs/
 *.tgz
-image-changelog.md
+media-artifacts-changelog.md
