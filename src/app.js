@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import { Select, StatusMessage, Badge } from '@inkjs/ui';
-import { VERSION, discoverDroids, getAvailableModels, getReasoningLevels, saveDroid } from './models.js';
+import { VERSION, discoverDroids, getAvailableModels, getDroidHelpStatus, getReasoningLevels, saveDroid } from './models.js';
 
 const STATE_LIST = 'list';
 const STATE_PICKER = 'picker';
@@ -9,10 +9,46 @@ const STATE_PICKER_ALL = 'picker_all';
 const STATE_REASONING = 'reasoning';
 const STATE_REASONING_ALL = 'reasoning_all';
 
+const REASONING_USE_DEFAULT = '__use_default__';
+
 // Truncate string with ellipsis
 function truncate(str, maxLen) {
   if (!str || str.length <= maxLen) return str || '';
   return str.slice(0, maxLen - 1) + '…';
+}
+
+function stripModelPrefix(model) {
+  if (!model) return model;
+  return model.startsWith('custom:') ? model.slice('custom:'.length) : model;
+}
+
+function isModelIdKnownToSupportReasoning(model) {
+  const reasoning = getReasoningLevels(model);
+  return Boolean(reasoning && reasoning.supported?.length > 0 && !reasoning.supported.every(l => l === 'none'));
+}
+
+function computeReasoningDefaultValue(currentEffort, reasoning) {
+  if (!reasoning) return REASONING_USE_DEFAULT;
+
+  if (currentEffort != null && reasoning.supported.includes(currentEffort)) {
+    return currentEffort;
+  }
+
+  if (reasoning.default && reasoning.supported.includes(reasoning.default)) {
+    return reasoning.default;
+  }
+
+  return REASONING_USE_DEFAULT;
+}
+
+function withModelAndEffort(droid, model, reasoningEffort) {
+  const next = { ...droid, model };
+  if (reasoningEffort === undefined || reasoningEffort === null) {
+    delete next.reasoningEffort;
+  } else {
+    next.reasoningEffort = reasoningEffort;
+  }
+  return next;
 }
 
 // Custom Table Row component
@@ -95,7 +131,7 @@ export default function App() {
         setState(STATE_PICKER_ALL);
       }
       if (input === 'i') {
-        const updated = droids.map(d => ({ ...d, model: 'inherit' }));
+        const updated = droids.map(d => withModelAndEffort(d, 'inherit', undefined));
         setDroids(updated);
         showMessage("All droids set to 'inherit'", 'success');
       }
@@ -124,34 +160,54 @@ export default function App() {
   });
 
   const handleModelSelect = (value) => {
-    let model = value;
-    if (model.startsWith('factory:') || model.startsWith('byok:')) {
-      model = model.split(':')[1];
+    const status = getDroidHelpStatus();
+
+    let model;
+    if (value.startsWith('factory:')) {
+      model = value.split(':')[1];
+    } else if (value.startsWith('byok:')) {
+      model = `custom:${value.split(':')[1]}`;
+    } else {
+      model = value;
     }
 
-    const reasoning = getReasoningLevels(model);
-    const hasReasoning = reasoning && reasoning.supported.length > 0 && 
-      !reasoning.supported.every(l => l === 'none');
+    if (model === 'inherit') {
+      applyModelChange(model, undefined);
+      return;
+    }
+
+    if (status.ok === false) {
+      showMessage(`Could not load model capabilities from \`droid exec --help\`: ${status.error}`, 'warning');
+    }
+
+    const hasReasoning = isModelIdKnownToSupportReasoning(model);
 
     if (hasReasoning) {
       setPendingModel(model);
       setState(state === STATE_PICKER ? STATE_REASONING : STATE_REASONING_ALL);
     } else {
-      applyModelChange(model, null);
+      applyModelChange(model, undefined);
     }
   };
 
   const applyModelChange = (model, reasoningEffort) => {
+    const reasoning = getReasoningLevels(model);
+
+    if (reasoningEffort != null && reasoning && !reasoning.supported.includes(reasoningEffort)) {
+      showMessage(`'${reasoningEffort}' is not supported for ${stripModelPrefix(model)}`, 'warning');
+      return;
+    }
+
     if (state === STATE_PICKER || state === STATE_REASONING) {
       const updated = [...droids];
-      updated[selectedIndex] = { ...updated[selectedIndex], model, reasoningEffort };
+      updated[selectedIndex] = withModelAndEffort(updated[selectedIndex], model, reasoningEffort);
       setDroids(updated);
-      const effortStr = reasoningEffort ? ` (${reasoningEffort})` : '';
+      const effortStr = reasoningEffort != null ? ` (${reasoningEffort})` : '';
       showMessage(`Set ${droids[selectedIndex].name} to '${model}${effortStr}'`, 'success');
     } else if (state === STATE_PICKER_ALL || state === STATE_REASONING_ALL) {
-      const updated = droids.map(d => ({ ...d, model, reasoningEffort }));
+      const updated = droids.map(d => withModelAndEffort(d, model, reasoningEffort));
       setDroids(updated);
-      const effortStr = reasoningEffort ? ` (${reasoningEffort})` : '';
+      const effortStr = reasoningEffort != null ? ` (${reasoningEffort})` : '';
       showMessage(`All droids set to '${model}${effortStr}'`, 'success');
     }
     setPendingModel(null);
@@ -159,8 +215,11 @@ export default function App() {
   };
 
   const handleReasoningSelect = (value) => {
-    const effort = value === 'skip' ? null : value;
-    applyModelChange(pendingModel, effort);
+    if (value === REASONING_USE_DEFAULT) {
+      applyModelChange(pendingModel, undefined);
+      return;
+    }
+    applyModelChange(pendingModel, value);
   };
 
   // Model picker screen
@@ -170,7 +229,10 @@ export default function App() {
       : 'Set ALL droids to:';
     
     const currentModel = state === STATE_PICKER ? droids[selectedIndex]?.model : 'inherit';
-    const defaultValue = modelOptions.find(o => o.value.endsWith(`:${currentModel}`))?.value;
+    const modelOptionValue = currentModel?.startsWith('custom:')
+      ? `byok:${stripModelPrefix(currentModel)}`
+      : `factory:${currentModel}`;
+    const defaultValue = modelOptions.find(o => o.value === modelOptionValue)?.value;
 
     return (
       <Box flexDirection="column" padding={1}>
@@ -197,17 +259,23 @@ export default function App() {
     const reasoning = getReasoningLevels(pendingModel);
     const currentEffort = state === STATE_REASONING 
       ? droids[selectedIndex]?.reasoningEffort 
-      : null;
-    
+      : (droids.length > 0 && droids.every(d => d.reasoningEffort === droids[0].reasoningEffort)
+        ? droids[0].reasoningEffort
+        : undefined);
+
     const options = [
-      { label: 'Skip (no reasoning effort)', value: 'skip' },
-      ...reasoning.supported
-        .filter(l => l !== 'none')
-        .map(l => ({ 
-          label: l === reasoning.default ? `${l} (default)` : l, 
-          value: l 
-        })),
+      { label: 'Use model default (unset reasoningEffort)', value: REASONING_USE_DEFAULT },
+      ...(reasoning?.supported?.length
+        ? reasoning.supported.map(l => ({
+          label: l === reasoning.default ? `${l} (default)` : l,
+          value: l
+        }))
+        : []),
     ];
+
+    const defaultValue = reasoning?.supported?.length
+      ? computeReasoningDefaultValue(currentEffort, reasoning)
+      : REASONING_USE_DEFAULT;
 
     return (
       <Box flexDirection="column" padding={1}>
@@ -217,7 +285,7 @@ export default function App() {
         <Box borderStyle="round" borderColor="cyan" paddingX={1}>
           <Select
             options={options}
-            defaultValue={currentEffort || 'skip'}
+            defaultValue={defaultValue}
             onChange={handleReasoningSelect}
           />
         </Box>
@@ -260,7 +328,7 @@ export default function App() {
             const isSelected = index === selectedIndex;
             const isModified = droid.model !== droid.originalModel || 
               droid.reasoningEffort !== droid.originalReasoningEffort;
-            const modelDisplay = droid.reasoningEffort 
+            const modelDisplay = droid.reasoningEffort != null
               ? `${droid.model} (${droid.reasoningEffort})` 
               : droid.model;
             return (

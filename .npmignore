@@ -2,3 +2,5 @@ src/
 .git/
 .gitignore
 babel.config.json
+artifacts/
+.claude/

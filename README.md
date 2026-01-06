@@ -6,7 +6,8 @@ A TUI (Terminal User Interface) tool for managing [Factory](https://factory.ai) 
 
 - View all your Factory droids and their current model assignments
 - Change models for individual droids or all at once
-- Supports all official Factory models + your custom BYOK models
+- Reasoning effort picker that only shows valid levels for the selected model (plus “use model default”)
+- Supports official Factory models + your custom BYOK models
 - Visual indicators for unsaved changes
 - Vim-style navigation (j/k keys)
 
@@ -38,7 +39,7 @@ droid-model-tuner
 | `k` / `↑` | Move up |
 | `Enter` | Edit selected droid's model |
 | `a` | Set ALL droids to a model |
-| `i` | Set ALL droids to "inherit" |
+| `i` | Set ALL droids to "inherit" (clears reasoningEffort) |
 | `s` | Save changes |
 | `r` | Reload from disk |
 | `q` | Quit |
@@ -48,7 +49,7 @@ droid-model-tuner
 The tool reads droid configurations from:
 - Personal droids: `~/.factory/droids/*.md`
 
-It also reads your BYOK custom models from `~/.factory/config.json` to include them in the model picker.
+It also reads your BYOK custom models from `~/.factory/settings.json` (`customModels`) to include them in the model picker.
 
 ## License
 

@@ -25,10 +25,18 @@ const FALLBACK_MODELS = [
 
 const PERSONAL_DROIDS_DIR = path.join(os.homedir(), '.factory', 'droids');
 const FACTORY_CONFIG_PATH = path.join(os.homedir(), '.factory', 'config.json');
+const FACTORY_SETTINGS_PATH = path.join(os.homedir(), '.factory', 'settings.json');
 
 // Cache for dynamic models and reasoning info
 let cachedModels = null;
 let cachedReasoningInfo = {};
+let cachedDroidHelpOk = null;
+let cachedDroidHelpError = null;
+
+function toModelIdForLookup(modelId) {
+  if (!modelId) return modelId;
+  return modelId.startsWith('custom:') ? modelId.slice('custom:'.length) : modelId;
+}
 
 function parseModelsFromDroidHelp() {
   try {
@@ -96,18 +104,31 @@ function parseModelsFromDroidHelp() {
       }
     }
 
+    cachedDroidHelpOk = true;
+    cachedDroidHelpError = null;
     cachedReasoningInfo = reasoningInfo;
+
     return models.length > 1 ? models : null;
-  } catch {
+  } catch (e) {
+    cachedDroidHelpOk = false;
+    cachedDroidHelpError = e?.message || 'Failed to load `droid exec --help`.';
     return null;
   }
+}
+
+export function getDroidHelpStatus() {
+  if (!cachedModels) {
+    cachedModels = parseModelsFromDroidHelp() || FALLBACK_MODELS;
+  }
+  return { ok: cachedDroidHelpOk, error: cachedDroidHelpError };
 }
 
 export function getReasoningLevels(modelId) {
   if (!cachedModels) {
     cachedModels = parseModelsFromDroidHelp() || FALLBACK_MODELS;
   }
-  return cachedReasoningInfo[modelId] || null;
+  const lookupId = toModelIdForLookup(modelId);
+  return cachedReasoningInfo[lookupId] || null;
 }
 
 export function getAvailableModels() {
@@ -118,16 +139,28 @@ export function getAvailableModels() {
   const factory = [...cachedModels];
   const byok = [];
 
-  if (fs.existsSync(FACTORY_CONFIG_PATH)) {
+  // Preferred: ~/.factory/settings.json (customModels)
+  if (fs.existsSync(FACTORY_SETTINGS_PATH)) {
+    try {
+      const settings = JSON.parse(fs.readFileSync(FACTORY_SETTINGS_PATH, 'utf8'));
+      const customModels = settings.customModels || [];
+      for (const cm of customModels) {
+        if (cm?.model) byok.push(cm.model);
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // Legacy: ~/.factory/config.json (custom_models or customModels)
+  if (byok.length === 0 && fs.existsSync(FACTORY_CONFIG_PATH)) {
     try {
       const config = JSON.parse(fs.readFileSync(FACTORY_CONFIG_PATH, 'utf8'));
-      const customModels = config.custom_models || [];
+      const customModels = config.customModels || config.custom_models || [];
       for (const cm of customModels) {
-        if (cm.model) {
-          byok.push(cm.model);
-        }
+        if (cm?.model) byok.push(cm.model);
       }
-    } catch (e) {
+    } catch {
       // Ignore parse errors
     }
   }
@@ -152,11 +185,11 @@ export function discoverDroids() {
             path: filePath,
             model: data.model || 'inherit',
             originalModel: data.model || 'inherit',
-            reasoningEffort: data.reasoningEffort || null,
-            originalReasoningEffort: data.reasoningEffort || null,
+            reasoningEffort: data.reasoningEffort,
+            originalReasoningEffort: data.reasoningEffort,
             location: 'personal',
           });
-        } catch (e) {
+        } catch {
           // Skip files that can't be parsed
         }
       }
