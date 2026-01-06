@@ -25,7 +25,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/curtis-arch/droid-model-tuner-js"
+    "url": "git+https://github.com/curtis-arch/droid-model-tuner-js.git"
   },
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
