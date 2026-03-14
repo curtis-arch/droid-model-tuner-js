@@ -49,7 +49,21 @@ droid-model-tuner
 The tool reads droid configurations from:
 - Personal droids: `~/.factory/droids/*.md`
 
-It also reads your BYOK custom models from `~/.factory/settings.json` (`customModels`) to include them in the model picker.
+It also reads your BYOK custom models from `~/.factory/settings.json` (`customModels`) or `~/.factory/config.json` (`custom_models`) to include them in the model picker.
+
+### Auto-sync custom models
+
+On each run, the tool checks for an OpenAI-compatible proxy and automatically syncs the latest available models into your `~/.factory/config.json`. This keeps your model picker up to date without manual edits.
+
+The proxy is detected automatically from the `base_url` on your existing custom models. You can also set it explicitly in `~/.factory/settings.json`:
+
+```json
+{
+  "proxyUrl": "http://localhost:8317"
+}
+```
+
+If no proxy is configured or reachable, this step is silently skipped.
 
 ## License
 

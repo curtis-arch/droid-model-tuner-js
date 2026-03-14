@@ -27,6 +27,120 @@ const PERSONAL_DROIDS_DIR = path.join(os.homedir(), '.factory', 'droids');
 const FACTORY_CONFIG_PATH = path.join(os.homedir(), '.factory', 'config.json');
 const FACTORY_SETTINGS_PATH = path.join(os.homedir(), '.factory', 'settings.json');
 
+// Fetch JSON from a URL using built-in http/https (no extra dependencies)
+async function fetchJson(url, headers = {}) {
+  const protocol = url.startsWith('https://') ? 'https' : 'http';
+  const { default: transport } = await import(protocol);
+  return new Promise((resolve, reject) => {
+    const req = transport.get(url, { headers, timeout: 3000 }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch { reject(new Error('Invalid JSON response')); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+  });
+}
+
+/**
+ * Optionally syncs available models from a local proxy by fetching /v1/models.
+ * Safe to call always — silently does nothing if no proxy is configured or reachable.
+ * Proxy URL is detected from:
+ *   1. settings.json { proxyUrl: "http://localhost:8317" }
+ *   2. Auto-detected from base_url on existing custom_models in config.json
+ */
+export async function syncModelsFromProxy() {
+  let proxyBase = null;
+
+  // 1. Explicit opt-in via settings.json proxyUrl
+  if (fs.existsSync(FACTORY_SETTINGS_PATH)) {
+    try {
+      const settings = JSON.parse(fs.readFileSync(FACTORY_SETTINGS_PATH, 'utf8'));
+      if (settings.proxyUrl) {
+        proxyBase = settings.proxyUrl.replace(/\/v1\/?$/, '');
+      }
+      // 2. Auto-detect from existing customModels baseUrl (settings.json uses camelCase)
+      if (!proxyBase) {
+        const firstWithUrl = (settings.customModels || []).find((m) => m?.baseUrl);
+        if (firstWithUrl) {
+          proxyBase = firstWithUrl.baseUrl.replace(/\/v1\/?$/, '');
+        }
+      }
+    } catch {}
+  }
+
+  // 3. Auto-detect from config.json custom_models base_url (snake_case)
+  if (!proxyBase && fs.existsSync(FACTORY_CONFIG_PATH)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(FACTORY_CONFIG_PATH, 'utf8'));
+      const models = config.customModels || config.custom_models || [];
+      const firstWithUrl = models.find((m) => m?.base_url);
+      if (firstWithUrl) {
+        proxyBase = firstWithUrl.base_url.replace(/\/v1\/?$/, '');
+      }
+    } catch {}
+  }
+
+  if (!proxyBase) return false;
+
+  // Fetch model list from proxy
+  let modelIds;
+  try {
+    const data = await fetchJson(`${proxyBase}/v1/models`, {
+      Authorization: 'Bearer dummy-not-used',
+    });
+    modelIds = (data.data || []).map((m) => m.id).filter(Boolean);
+  } catch {
+    return false; // Proxy unreachable or not an OpenAI-compat endpoint
+  }
+
+  if (!modelIds.length) return false;
+
+  // Load settings.json — we write back to customModels there since it's the primary source
+  let settings = {};
+  if (fs.existsSync(FACTORY_SETTINGS_PATH)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(FACTORY_SETTINGS_PATH, 'utf8'));
+    } catch {}
+  }
+
+  // Index existing entries by model ID to preserve their metadata
+  const existing = {};
+  for (const cm of (settings.customModels || [])) {
+    if (cm?.model) existing[cm.model] = cm;
+  }
+
+  // Build updated list: preserve existing entries, append new ones
+  const updated = [...modelIds].sort().map((modelId, index) => {
+    if (existing[modelId]) return existing[modelId];
+    const isAnthropic = modelId.startsWith('claude-');
+    return {
+      model: modelId,
+      id: `custom:${modelId}-${index}`,
+      index,
+      baseUrl: isAnthropic ? proxyBase : `${proxyBase}/v1`,
+      apiKey: 'dummy-not-used',
+      displayName: modelId,
+      noImageSupport: false,
+      provider: isAnthropic ? 'anthropic' : 'openai',
+    };
+  });
+
+  // Re-index so index fields stay consistent
+  updated.forEach((m, i) => { m.index = i; });
+
+  fs.mkdirSync(path.dirname(FACTORY_SETTINGS_PATH), { recursive: true });
+  fs.writeFileSync(
+    FACTORY_SETTINGS_PATH,
+    JSON.stringify({ ...settings, customModels: updated }, null, 2)
+  );
+
+  return true;
+}
+
 // Cache for dynamic models and reasoning info
 let cachedModels = null;
 let cachedReasoningInfo = {};
